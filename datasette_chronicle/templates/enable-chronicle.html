@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}Enable chronicle tracking for {{ table }}{% endblock %}
+
+{% block crumbs %}
+{{ crumbs.nav(request=request, database=database, table=table) }}
+{% endblock %}
+
+{% block content %}
+<h1>Enable chronicle tracking for {{ table }}</h1>
+<p>Inserts, updates and deletes to this table will be reflected in a new <code>_chronicle_{{ table }}</code> table.</p>
+<p>
+    <form action="{{ action }}" method="post">
+        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+        <input type="submit" value="Enable chronicle tracking">
+    </form>
+</p>
+{% endblock %}

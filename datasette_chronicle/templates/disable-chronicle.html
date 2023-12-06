@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}Disable chronicle tracking for {{ table }}{% endblock %}
+
+{% block crumbs %}
+{{ crumbs.nav(request=request, database=database, table=table) }}
+{% endblock %}
+
+{% block content %}
+<h1>Disable chronicle tracking for {{ table }}</h1>
+<p>This will remove the <code>_chronicle_{{ table }}</code> table and associated triggers.</p>
+<p>
+    <form action="{{ action }}" method="post">
+        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+        <input type="submit" value="Disable chronicle tracking">
+    </form>
+</p>
+{% endblock %}
