@@ -19,23 +19,32 @@ def table_actions(datasette, actor, database, table):
         chronicle_table = "_chronicle_{}".format(table)
         if await db.table_exists(chronicle_table):
             # Table exists, so it's enabled
-            return [
-                {
-                    "href": datasette.urls.path(
-                        "/-/disable-chronicle/{}/{}".format(database, table)
-                    ),
-                    "label": "Disable chronicle tracking for this table",
-                }
-            ]
+            if await datasette.permission_allowed(
+                actor, "disable-chronicle", resource=(database, table)
+            ):
+                # User has permission to disable it
+                return [
+                    {
+                        "href": datasette.urls.path(
+                            "/-/disable-chronicle/{}/{}".format(database, table)
+                        ),
+                        "label": "Disable chronicle tracking for this table",
+                    }
+                ]
         else:
-            return [
-                {
-                    "href": datasette.urls.path(
-                        "/-/enable-chronicle/{}/{}".format(database, table)
-                    ),
-                    "label": "Enable chronicle tracking for this table",
-                }
-            ]
+            # Table doesn't exist, so it's disabled
+            if await datasette.permission_allowed(
+                actor, "enable-chronicle", resource=(database, table)
+            ):
+                # User has permission to enable it
+                return [
+                    {
+                        "href": datasette.urls.path(
+                            "/-/enable-chronicle/{}/{}".format(database, table)
+                        ),
+                        "label": "Enable chronicle tracking for this table",
+                    }
+                ]
 
     return inner
 
@@ -60,7 +69,7 @@ async def enable_chronicle(datasette, request):
     db = datasette.get_database(database)
     chronicle_table = "_chronicle_{}".format(table)
     if await db.table_exists(chronicle_table):
-        # Table exists, so it's enabled
+        # Table exists, so it's already enabled
         datasette.add_message(
             request,
             "Chronicle tracking is already enabled for {}".format(table),
@@ -80,16 +89,34 @@ async def enable_chronicle(datasette, request):
         )
         return Response.redirect(datasette.urls.table(database, table))
 
-    def enable(conn):
-        sqlite_chronicle.enable_chronicle(conn, table)
+    if request.method == "POST":
 
-    await db.execute_write_fn(enable)
-    datasette.add_message(
-        request,
-        "Chronicle tracking enabled for {}".format(table),
-        datasette.INFO,
-    )
-    return Response.redirect(datasette.urls.table(database, table))
+        def enable(conn):
+            sqlite_chronicle.enable_chronicle(conn, table)
+
+        await db.execute_write_fn(enable)
+        datasette.add_message(
+            request,
+            "Chronicle tracking enabled for {}".format(table),
+            datasette.INFO,
+        )
+        return Response.redirect(datasette.urls.table(database, table))
+    else:
+        # Show confirmation screen
+        return Response.html(
+            await datasette.render_template(
+                "enable-chronicle.html",
+                {
+                    "database": database,
+                    "table": table,
+                    "pks": pks,
+                    "action": datasette.urls.path(
+                        "/-/enable-chronicle/{}/{}".format(database, table)
+                    ),
+                },
+                request=request,
+            )
+        )
 
 
 async def disable_chronicle(datasette, request):
@@ -106,16 +133,39 @@ async def disable_chronicle(datasette, request):
         )
         return Response.redirect(datasette.urls.table(database, table))
 
-    def disable(conn):
-        conn.execute('DROP TABLE "{}"'.format(chronicle_table))
+    if request.method == "POST":
 
-    await db.execute_write_fn(disable)
-    datasette.add_message(
-        request,
-        "Chronicle tracking disabled for {}".format(table),
-        datasette.INFO,
-    )
-    return Response.redirect(datasette.urls.table(database, table))
+        def disable(conn):
+            conn.execute('DROP TABLE "{}"'.format(chronicle_table))
+            # And remove the triggers
+            for trigger in (
+                "_chronicle_{}_ai".format(table),
+                "_chronicle_{}_ad".format(table),
+                "_chronicle_{}_au".format(table),
+            ):
+                conn.execute('DROP TRIGGER "{}"'.format(trigger))
+
+        await db.execute_write_fn(disable)
+        datasette.add_message(
+            request,
+            "Chronicle tracking disabled for {}".format(table),
+            datasette.INFO,
+        )
+        return Response.redirect(datasette.urls.table(database, table))
+    else:
+        return Response.html(
+            await datasette.render_template(
+                "disable-chronicle.html",
+                {
+                    "database": database,
+                    "table": table,
+                    "action": datasette.urls.path(
+                        "/-/disable-chronicle/{}/{}".format(database, table)
+                    ),
+                },
+                request=request,
+            )
+        )
 
 
 @hookimpl
@@ -140,3 +190,13 @@ def register_permissions(datasette):
             default=False,
         ),
     ]
+
+
+@hookimpl
+def permission_allowed(actor, action):
+    if (
+        action in ("enable-chronicle", "disable-chronicle")
+        and actor
+        and actor.get("id") == "root"
+    ):
+        return True
