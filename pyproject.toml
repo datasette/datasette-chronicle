@@ -1,6 +1,6 @@
 [project]
 name = "datasette-chronicle"
-version = "0.1"
+version = "0.2"
 description = "Use sqlite-chronicle with tables in Datasette"
 readme = "README.md"
 authors = [{name = "Simon Willison"}]
