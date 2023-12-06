@@ -17,7 +17,9 @@ datasette install datasette-chronicle
 
 Once installed, users with the `enable-chronicle` and `disable-chronicle` permissions (granted to the `root` user by default) will have access to new table action menu options for enabling and disabling chronicle tracking for a table.
 
-See the [sqlite-chronicle documentation](https://github.com/simonw/sqlite-chronicle/blob/main/README.md) for more details.
+Tables that have had chronicle tracking enabled will now support a new `?_since=X` query string parameter on the table page, which will filter for just rows that have been inserted or updated since the specified chronicle version.
+
+See the [sqlite-chronicle documentation](https://github.com/simonw/sqlite-chronicle/blob/main/README.md) for more details on what this is and how it works.
 
 ## Development
 

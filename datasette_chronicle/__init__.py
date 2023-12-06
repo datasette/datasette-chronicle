@@ -1,4 +1,5 @@
 from datasette import hookimpl, Response
+from datasette.filters import FilterArguments
 import sqlite_chronicle
 
 try:
@@ -203,3 +204,30 @@ def permission_allowed(actor, action):
         and actor.get("id") == "root"
     ):
         return True
+
+
+@hookimpl
+def filters_from_request(request, datasette, database, table):
+    since = request.args.get("_since")
+    if since is None:
+        return
+
+    if table.startswith("_chronicle_"):
+        return
+
+    async def inner():
+        db = datasette.get_database(database)
+        chronicle_table = "_chronicle_{}".format(table)
+        if not await db.table_exists(chronicle_table):
+            # No chronicle table
+            return None
+        # Get the primary keys
+        pks = ", ".join('"{}"'.format(pk) for pk in await db.primary_keys(table))
+        extra_where = f'({pks}) in (select {pks} from "{chronicle_table}" where version > :chronicle_since)'
+        return FilterArguments(
+            [extra_where],
+            {"chronicle_since": since},
+            human_descriptions=["modified since version {}".format(since)],
+        )
+
+    return inner

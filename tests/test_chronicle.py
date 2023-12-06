@@ -9,7 +9,14 @@ async def test_enable_disable_chronicle(actor_id, tmpdir):
     db_path = str(tmpdir / "test.db")
     datasette = Datasette([db_path])
     db = sqlite_utils.Database(db_path)
-    db["dogs"].insert({"name": "Cleo", "age": 4}, pk="id")
+    db["dogs"].insert_all(
+        [
+            {"name": "Cleo", "age": 7},
+            {"name": "Pancakes", "age": 6},
+            {"name": "Stacy", "age": 3},
+        ],
+        pk="id",
+    )
 
     cookies = {}
     if actor_id:
@@ -43,20 +50,52 @@ async def test_enable_disable_chronicle(actor_id, tmpdir):
     # Table should exist now
     assert db["_chronicle_dogs"].exists()
 
+    # Try out the _since= parameter
+    for version, expected in (
+        (
+            None,
+            [
+                {"id": 1, "name": "Cleo", "age": 7},
+                {"id": 2, "name": "Pancakes", "age": 6},
+                {"id": 3, "name": "Stacy", "age": 3},
+            ],
+        ),
+        (
+            1,
+            [
+                {"id": 2, "name": "Pancakes", "age": 6},
+                {"id": 3, "name": "Stacy", "age": 3},
+            ],
+        ),
+        (
+            2,
+            [
+                {"id": 3, "name": "Stacy", "age": 3},
+            ],
+        ),
+    ):
+        json_response = await datasette.client.get(
+            "/test/dogs.json?_shape=array{}".format(
+                "&_since={}".format(version) if version else ""
+            )
+        )
+        assert json_response.status_code == 200
+        assert json_response.json() == expected
+
     # Table page should have disable action now
-    response3 = await datasette.client.get("/test/dogs", cookies=cookies)
-    assert "/-/disable-chronicle/test/dogs" in response3.text
+    response4 = await datasette.client.get("/test/dogs", cookies=cookies)
+    assert "/-/disable-chronicle/test/dogs" in response4.text
 
     # Disable chronicle
-    response4 = await datasette.client.post(
+    response5 = await datasette.client.post(
         "/-/disable-chronicle/test/dogs",
         data={"csrftoken": response.cookies["ds_csrftoken"]},
         cookies=cookies,
     )
     # Should redirect
-    assert response4.status_code == 302
-    assert response4.headers["location"] == "/test/dogs"
-    assert datasette.unsign(response4.cookies["ds_messages"], "messages") == [
+    assert response5.status_code == 302
+    assert response5.headers["location"] == "/test/dogs"
+    assert datasette.unsign(response5.cookies["ds_messages"], "messages") == [
         ["Chronicle tracking disabled for dogs", 1]
     ]
 
