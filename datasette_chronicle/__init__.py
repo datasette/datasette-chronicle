@@ -16,6 +16,9 @@ def table_actions(datasette, actor, database, table):
     async def inner():
         # First check if table is enabled or not
         db = datasette.get_database(database)
+        view_names = await db.view_names()
+        if table in view_names:
+            return None
         chronicle_table = "_chronicle_{}".format(table)
         if await db.table_exists(chronicle_table):
             # Table exists, so it's enabled
