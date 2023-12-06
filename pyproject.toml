@@ -25,7 +25,7 @@ CI = "https://github.com/simonw/datasette-chronicle/actions"
 chronicle = "datasette_chronicle"
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-asyncio"]
+test = ["pytest", "pytest-asyncio", "sqlite-utils"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
