@@ -16,10 +16,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/simonw/datasette-chronicle"
-Changelog = "https://github.com/simonw/datasette-chronicle/releases"
-Issues = "https://github.com/simonw/datasette-chronicle/issues"
-CI = "https://github.com/simonw/datasette-chronicle/actions"
+Homepage = "https://github.com/datasette/datasette-chronicle"
+Changelog = "https://github.com/datasette/datasette-chronicle/releases"
+Issues = "https://github.com/datasette/datasette-chronicle/issues"
+CI = "https://github.com/datasette/datasette-chronicle/actions"
 
 [project.entry-points.datasette]
 chronicle = "datasette_chronicle"

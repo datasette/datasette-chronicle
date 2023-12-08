@@ -1,9 +1,9 @@
 # datasette-chronicle
 
 [![PyPI](https://img.shields.io/pypi/v/datasette-chronicle.svg)](https://pypi.org/project/datasette-chronicle/)
-[![Changelog](https://img.shields.io/github/v/release/simonw/datasette-chronicle?include_prereleases&label=changelog)](https://github.com/simonw/datasette-chronicle/releases)
-[![Tests](https://github.com/simonw/datasette-chronicle/workflows/Test/badge.svg)](https://github.com/simonw/datasette-chronicle/actions?query=workflow%3ATest)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/simonw/datasette-chronicle/blob/main/LICENSE)
+[![Changelog](https://img.shields.io/github/v/release/datasette/datasette-chronicle?include_prereleases&label=changelog)](https://github.com/datasette/datasette-chronicle/releases)
+[![Tests](https://github.com/datasette/datasette-chronicle/workflows/Test/badge.svg)](https://github.com/datasette/datasette-chronicle/actions?query=workflow%3ATest)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/datasette/datasette-chronicle/blob/main/LICENSE)
 
 Use [sqlite-chronicle](https://github.com/simonw/sqlite-chronicle) with tables in Datasette
 
