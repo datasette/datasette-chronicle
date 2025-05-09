@@ -44,7 +44,7 @@ async def test_enable_disable_chronicle(actor_id, tmpdir):
     assert response2.status_code == 302
     assert response2.headers["location"] == "/test/dogs"
     assert datasette.unsign(response2.cookies["ds_messages"], "messages") == [
-        ["Chronicle tracking enabled for dogs", 1]
+        ["row version tracking enabled for dogs", 1]
     ]
 
     # Table should exist now
@@ -96,7 +96,7 @@ async def test_enable_disable_chronicle(actor_id, tmpdir):
     assert response5.status_code == 302
     assert response5.headers["location"] == "/test/dogs"
     assert datasette.unsign(response5.cookies["ds_messages"], "messages") == [
-        ["Chronicle tracking disabled for dogs", 1]
+        ["row version tracking disabled for dogs", 1]
     ]
 
     # Chronicle table should be gone

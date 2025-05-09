@@ -26,13 +26,13 @@ def table_actions(datasette, actor, database, table):
             if await datasette.permission_allowed(
                 actor, "disable-chronicle", resource=(database, table)
             ):
-                # User has permission to disable it
                 return [
                     {
                         "href": datasette.urls.path(
                             "/-/disable-chronicle/{}/{}".format(database, table)
                         ),
-                        "label": "Disable chronicle tracking for this table",
+                        "label": "Disable row version tracking for this table",
+                        "description": "Remove the associated triggers and table",
                     }
                 ]
         else:
@@ -40,13 +40,15 @@ def table_actions(datasette, actor, database, table):
             if await datasette.permission_allowed(
                 actor, "enable-chronicle", resource=(database, table)
             ):
-                # User has permission to enable it
+                if not await db.primary_keys(table):
+                    return None
                 return [
                     {
                         "href": datasette.urls.path(
                             "/-/enable-chronicle/{}/{}".format(database, table)
                         ),
-                        "label": "Enable chronicle tracking for this table",
+                        "label": "Enable row version tracking for this table",
+                        "description": "Track a version number and added/updated time for each row",
                     }
                 ]
 
@@ -76,7 +78,7 @@ async def enable_chronicle(datasette, request):
         # Table exists, so it's already enabled
         datasette.add_message(
             request,
-            "Chronicle tracking is already enabled for {}".format(table),
+            "row version tracking is already enabled for {}".format(table),
             datasette.WARNING,
         )
         return Response.redirect(datasette.urls.table(database, table))
@@ -86,7 +88,7 @@ async def enable_chronicle(datasette, request):
     if not pks:
         datasette.add_message(
             request,
-            "Cannot enable chronicle tracking for {} because it has no primary keys".format(
+            "Cannot enable row version tracking for {} because it has no primary keys".format(
                 table
             ),
             datasette.ERROR,
@@ -101,7 +103,7 @@ async def enable_chronicle(datasette, request):
         await db.execute_write_fn(enable)
         datasette.add_message(
             request,
-            "Chronicle tracking enabled for {}".format(table),
+            "row version tracking enabled for {}".format(table),
             datasette.INFO,
         )
         return Response.redirect(datasette.urls.table(database, table))
@@ -132,7 +134,7 @@ async def disable_chronicle(datasette, request):
         # Table doesn't exist, so it's disabled
         datasette.add_message(
             request,
-            "Chronicle tracking is already disabled for {}".format(table),
+            "row version tracking is already disabled for {}".format(table),
             datasette.WARNING,
         )
         return Response.redirect(datasette.urls.table(database, table))
@@ -152,7 +154,7 @@ async def disable_chronicle(datasette, request):
         await db.execute_write_fn(disable)
         datasette.add_message(
             request,
-            "Chronicle tracking disabled for {}".format(table),
+            "row version tracking disabled for {}".format(table),
             datasette.INFO,
         )
         return Response.redirect(datasette.urls.table(database, table))
@@ -180,7 +182,7 @@ def register_permissions(datasette):
         Permission(
             name="enable-chronicle",
             abbr=None,
-            description="Enable chronicle tracking for a table",
+            description="Enable row version tracking for a table",
             takes_database=True,
             takes_resource=True,
             default=False,
@@ -188,7 +190,7 @@ def register_permissions(datasette):
         Permission(
             name="disable-chronicle",
             abbr=None,
-            description="Disable chronicle tracking for a table",
+            description="Disable row version tracking for a table",
             takes_database=True,
             takes_resource=True,
             default=False,
