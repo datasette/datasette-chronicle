@@ -143,9 +143,9 @@ async def disable_chronicle(datasette, request):
             conn.execute('DROP TABLE "{}"'.format(chronicle_table))
             # And remove the triggers
             for trigger in (
-                "_chronicle_{}_ai".format(table),
-                "_chronicle_{}_ad".format(table),
-                "_chronicle_{}_au".format(table),
+                "chronicle_{}_ai".format(table),
+                "chronicle_{}_ad".format(table),
+                "chronicle_{}_au".format(table),
             ):
                 conn.execute('DROP TRIGGER "{}"'.format(trigger))
 
@@ -223,7 +223,7 @@ def filters_from_request(request, datasette, database, table):
             return None
         # Get the primary keys
         pks = ", ".join('"{}"'.format(pk) for pk in await db.primary_keys(table))
-        extra_where = f'({pks}) in (select {pks} from "{chronicle_table}" where version > :chronicle_since)'
+        extra_where = f'({pks}) in (select {pks} from "{chronicle_table}" where __version > :chronicle_since)'
         return FilterArguments(
             [extra_where],
             {"chronicle_since": since},
