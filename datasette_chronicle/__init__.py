@@ -8,13 +8,33 @@ except ImportError:
     # pre-Datasette-1.0
     Permission = None
 
+# Keep track of which upgrades have run
+upgrade_has_run = set()
+
+
+async def upgrade_database(datasette, database):
+    db = datasette.get_database(database)
+    # Check if the _chronicle_ tables exist
+    table_names = await db.table_names()
+    for table in table_names:
+        if table.startswith("_chronicle_"):
+            # Upgrade the existing chronicle table
+            other_table = table[len("_chronicle_") :]
+            await db.execute_write_fn(
+                lambda conn: sqlite_chronicle.upgrade_chronicle(conn, other_table)
+            )
+
 
 @hookimpl
 def table_actions(datasette, actor, database, table):
-    if table.startswith("_chronicle_"):
-        return []
-
     async def inner():
+        if database not in upgrade_has_run:
+            upgrade_has_run.add(database)
+            await upgrade_database(datasette, database)
+
+        if table.startswith("_chronicle_"):
+            return []
+
         # First check if table is enabled or not
         db = datasette.get_database(database)
         view_names = await db.view_names()

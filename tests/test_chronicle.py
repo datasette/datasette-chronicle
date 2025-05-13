@@ -101,3 +101,76 @@ async def test_enable_disable_chronicle(actor_id, tmpdir):
 
     # Chronicle table should be gone
     assert not db["_chronicle_dogs"].exists()
+
+
+@pytest.mark.asyncio
+async def test_upgrades_existing_chronicle_tables_on_startup(tmpdir):
+    db_path = str(tmpdir / "test2.db")
+    db = sqlite_utils.Database(db_path)
+
+    with db.conn:
+        db.conn.executescript(
+            """
+        CREATE TABLE "dogs" (
+            id         INTEGER,
+            name      TEXT,
+            age      INTEGER
+        );
+        CREATE TABLE "_chronicle_dogs" (
+            id         INTEGER,
+            added_ms   INTEGER,
+            updated_ms INTEGER,
+            version    INTEGER DEFAULT 0,
+            deleted    INTEGER DEFAULT 0,
+            PRIMARY KEY(id)
+        );
+        CREATE INDEX "_chronicle_dogs_version"
+            ON _chronicle_dogs(version);
+
+        CREATE TRIGGER "_chronicle_dogs_ai"
+        AFTER INSERT ON "dogs"
+        FOR EACH ROW BEGIN
+            INSERT INTO "_chronicle_dogs"(id,added_ms,updated_ms,version,deleted)
+            VALUES(NEW.id,111,111,1,0);
+        END;
+
+        CREATE TRIGGER "_chronicle_dogs_au"
+        AFTER UPDATE ON "dogs"
+        FOR EACH ROW BEGIN
+            UPDATE "_chronicle_dogs"
+                SET updated_ms=222, version=2
+            WHERE id=OLD.id;
+        END;
+
+        CREATE TRIGGER "_chronicle_dogs_ad"
+        AFTER DELETE ON "dogs"
+        FOR EACH ROW BEGIN
+            UPDATE "_chronicle_dogs"
+                SET updated_ms=333, version=3, deleted=1
+            WHERE id=OLD.id;
+        END;
+
+        INSERT INTO dogs(id,name,age) VALUES(1,'Fido',5);
+        """
+        )
+
+    assert db["_chronicle_dogs"].exists()
+    assert db["_chronicle_dogs"].columns_dict == {
+        "added_ms": int,
+        "deleted": int,
+        "id": int,
+        "updated_ms": int,
+        "version": int,
+    }
+
+    datasette = Datasette([db_path])
+    # A hit to any page showing the menus should trigger the upgrade
+    await datasette.client.get("/test2/dogs")
+
+    assert db["_chronicle_dogs"].columns_dict == {
+        "id": int,
+        "__added_ms": int,
+        "__deleted": int,
+        "__updated_ms": int,
+        "__version": int,
+    }
