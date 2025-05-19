@@ -229,6 +229,61 @@ def permission_allowed(actor, action):
 
 
 @hookimpl
+async def extra_head_html(database, table, datasette):
+    # Check if chronicle is enabled for this table
+    db = datasette.get_database(database)
+    if not await db.table_exists("_chronicle_" + table):
+        return ""
+    return """
+<style>
+.chronicle-notification-banner {
+    background-color: #E8F5E9; /* A light green, less jarring than yellow */
+    padding: 12px 15px;
+    border: 1px solid #A5D6A7;
+    border-radius: 4px;
+    margin-bottom: 15px;
+    text-align: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    font-size: 0.9em;
+    color: #1B5E20; /* Darker green for text */
+}
+</style>
+"""
+
+
+@hookimpl
+async def extra_js_urls(database, table, datasette):
+    # Check if chronicle is enabled for this table
+    db = datasette.get_database(database)
+    if not await db.table_exists("_chronicle_" + table):
+        return []
+    return [datasette.urls.static_plugin("datasette-chronicle", "datasette_chronicle.js")]
+
+
+@hookimpl
+async def extra_body_script(database, table, datasette):
+    # Check if chronicle is enabled for this table
+    db = datasette.get_database(database)
+    chronicle_table_name = "_chronicle_" + table
+    if not await db.table_exists(chronicle_table_name):
+        return ""
+
+    result = await db.execute(f'SELECT MAX(__version) AS max_version FROM "{chronicle_table_name}"')
+    max_version_row = result.first()
+    max_version = 0
+    if max_version_row and max_version_row["max_version"] is not None:
+        max_version = max_version_row["max_version"]
+
+    return f"""
+<script>
+  window.datasette_chronicle_max_version = {max_version};
+  window.datasette_chronicle_database_name = "{database}";
+  window.datasette_chronicle_table_name = "{table}";
+</script>
+"""
+
+
+@hookimpl
 def filters_from_request(request, datasette, database, table):
     since = request.args.get("_since")
     if since is None:
