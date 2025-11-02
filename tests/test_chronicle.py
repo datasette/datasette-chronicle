@@ -8,6 +8,7 @@ import sqlite_utils
 async def test_enable_disable_chronicle(actor_id, tmpdir):
     db_path = str(tmpdir / "test.db")
     datasette = Datasette([db_path])
+    datasette.root_enabled = True
     db = sqlite_utils.Database(db_path)
     db["dogs"].insert_all(
         [

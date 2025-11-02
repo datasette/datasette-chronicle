@@ -1,12 +1,8 @@
-from datasette import hookimpl, Response
+from datasette import Response, hookimpl
 from datasette.filters import FilterArguments
+from datasette.permissions import Action
+from datasette.resources import TableResource
 import sqlite_chronicle
-
-try:
-    from datasette import Permission
-except ImportError:
-    # pre-Datasette-1.0
-    Permission = None
 
 # Keep track of which upgrades have run
 upgrade_has_run = set()
@@ -41,10 +37,13 @@ def table_actions(datasette, actor, database, table):
         if table in view_names:
             return None
         chronicle_table = "_chronicle_{}".format(table)
+
         if await db.table_exists(chronicle_table):
             # Table exists, so it's enabled
-            if await datasette.permission_allowed(
-                actor, "disable-chronicle", resource=(database, table)
+            if await datasette.allowed(
+                actor=actor,
+                action="disable-chronicle",
+                resource=TableResource(database, table),
             ):
                 return [
                     {
@@ -57,8 +56,10 @@ def table_actions(datasette, actor, database, table):
                 ]
         else:
             # Table doesn't exist, so it's disabled
-            if await datasette.permission_allowed(
-                actor, "enable-chronicle", resource=(database, table)
+            if await datasette.allowed(
+                actor=actor,
+                action="enable-chronicle",
+                resource=TableResource(database, table),
             ):
                 if not await db.primary_keys(table):
                     return None
@@ -195,37 +196,19 @@ async def disable_chronicle(datasette, request):
 
 
 @hookimpl
-def register_permissions(datasette):
-    if Permission is None:
-        return
+def register_actions(datasette):
     return [
-        Permission(
+        Action(
             name="enable-chronicle",
-            abbr=None,
             description="Enable row version tracking for a table",
-            takes_database=True,
-            takes_resource=True,
-            default=False,
+            resource_class=TableResource,
         ),
-        Permission(
+        Action(
             name="disable-chronicle",
-            abbr=None,
             description="Disable row version tracking for a table",
-            takes_database=True,
-            takes_resource=True,
-            default=False,
+            resource_class=TableResource,
         ),
     ]
-
-
-@hookimpl
-def permission_allowed(actor, action):
-    if (
-        action in ("enable-chronicle", "disable-chronicle")
-        and actor
-        and actor.get("id") == "root"
-    ):
-        return True
 
 
 @hookimpl
