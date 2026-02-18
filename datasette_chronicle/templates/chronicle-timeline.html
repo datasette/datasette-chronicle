@@ -62,10 +62,22 @@
   <a href="{{ urls.table(database, event.table) }}">{{ event.table }}</a>
   &ndash;
   {% set parts = [] %}
-  {% if event.added %}{% set _ = parts.append(event.added|string + " added") %}{% endif %}
-  {% if event.updated %}{% set _ = parts.append(event.updated|string + " updated") %}{% endif %}
+  {% if event.added %}
+    {% if event.added_version_range %}
+      {% set _ = parts.append('<a href="' + urls.table(database, event.table) + '?_chronicle_added_range=' + event.added_version_range + '">' + (event.added|string) + ' added</a>') %}
+    {% else %}
+      {% set _ = parts.append(event.added|string + ' added') %}
+    {% endif %}
+  {% endif %}
+  {% if event.updated %}
+    {% if event.updated_version_range %}
+      {% set _ = parts.append('<a href="' + urls.table(database, event.table) + '?_chronicle_updated_range=' + event.updated_version_range + '">' + (event.updated|string) + ' updated</a>') %}
+    {% else %}
+      {% set _ = parts.append(event.updated|string + ' updated') %}
+    {% endif %}
+  {% endif %}
   {% if event.deleted %}{% set _ = parts.append(event.deleted|string + " deleted") %}{% endif %}
-  {{ parts | join(", ") }}
+  {{ parts | join(", ") | safe }}
   <span class="event-time">{{ event.time_label }}</span>
 </h3>
 {% endif %}

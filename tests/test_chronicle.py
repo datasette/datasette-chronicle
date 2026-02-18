@@ -436,3 +436,118 @@ async def test_table_action_shows_timeline_link(tmpdir):
     cookies = {"ds_actor": datasette.sign({"a": {"id": "root"}}, "actor")}
     response = await datasette.client.get("/timeline/articles", cookies=cookies)
     assert "/-/chronicle/timeline/timeline/articles" in response.text
+
+
+# --- Tests for _chronicle_added_range and _chronicle_updated_range filters ---
+
+
+async def _setup_filter_range_db(tmpdir):
+    """
+    Set up a DB with a chronicle-enabled 'items' table.
+    Inserts 3 rows (versions 1-3), then updates row id=1 (version 4).
+    Returns (datasette, db).
+    """
+    db_path = str(tmpdir / "filter_range.db")
+    db = sqlite_utils.Database(db_path)
+    db["items"].insert_all(
+        [{"id": i, "name": "item{}".format(i)} for i in range(1, 4)],
+        pk="id",
+    )
+    with db.conn:
+        sqlite_chronicle.enable_chronicle(db.conn, "items")
+    # Patch versions: rows 1,2,3 added at versions 1,2,3; row 1 updated at version 4
+    for item_id in range(1, 4):
+        db["_chronicle_items"].update(
+            item_id,
+            {"__added_ms": item_id * 1000, "__updated_ms": item_id * 1000, "__version": item_id},
+        )
+    # Simulate an update to row id=1: added_ms stays at 1000, updated_ms and version advance
+    db["_chronicle_items"].update(
+        1, {"__updated_ms": 4000, "__version": 4}
+    )
+    datasette = Datasette([db_path])
+    return datasette, db
+
+
+@pytest.mark.asyncio
+async def test_chronicle_added_range_filter(tmpdir):
+    """?_chronicle_added_range=MIN-MAX returns only rows added in that version range."""
+    datasette, db = await _setup_filter_range_db(tmpdir)
+    # Rows added at versions 2 and 3 -> should return items 2 and 3
+    response = await datasette.client.get(
+        "/filter_range/items.json?_shape=array&_chronicle_added_range=2-3"
+    )
+    assert response.status_code == 200
+    rows = response.json()
+    ids = sorted(r["id"] for r in rows)
+    assert ids == [2, 3]
+
+
+@pytest.mark.asyncio
+async def test_chronicle_updated_range_filter(tmpdir):
+    """?_chronicle_updated_range=MIN-MAX returns only rows last-updated (not added) in that range."""
+    datasette, db = await _setup_filter_range_db(tmpdir)
+    # Row id=1 was updated at version 4 (added_ms != updated_ms)
+    response = await datasette.client.get(
+        "/filter_range/items.json?_shape=array&_chronicle_updated_range=4-4"
+    )
+    assert response.status_code == 200
+    rows = response.json()
+    ids = [r["id"] for r in rows]
+    assert ids == [1]
+
+
+@pytest.mark.asyncio
+async def test_chronicle_added_range_excludes_updated_rows(tmpdir):
+    """_chronicle_added_range should not include rows that were only updated (not freshly inserted)."""
+    datasette, db = await _setup_filter_range_db(tmpdir)
+    # Version range 1-4 covers all operations, but added_range should exclude the update to id=1
+    # id=1 has __version=4 but __added_ms != __updated_ms, so it's not "added" in this range
+    response = await datasette.client.get(
+        "/filter_range/items.json?_shape=array&_chronicle_added_range=1-4"
+    )
+    assert response.status_code == 200
+    rows = response.json()
+    # id=1 was added at version 1 but now has version=4, so __version=4 is NOT between 1-4 for the
+    # added filter (it would need __added_ms==__updated_ms at version 4, which it doesn't).
+    # ids 2 and 3 were added at versions 2 and 3, with __version still at 2 and 3.
+    ids = sorted(r["id"] for r in rows)
+    assert ids == [2, 3]
+
+
+@pytest.mark.asyncio
+async def test_chronicle_added_range_no_chronicle_table(tmpdir):
+    """_chronicle_added_range returns all rows when no chronicle table exists."""
+    db_path = str(tmpdir / "nochron2.db")
+    db = sqlite_utils.Database(db_path)
+    db["dogs"].insert_all(
+        [{"id": 1, "name": "Fido"}, {"id": 2, "name": "Rex"}], pk="id"
+    )
+    datasette = Datasette([db_path])
+    response = await datasette.client.get(
+        "/nochron2/dogs.json?_shape=array&_chronicle_added_range=1-5"
+    )
+    assert response.status_code == 200
+    # Without a chronicle table, the filter has no effect (returns all rows)
+    assert len(response.json()) == 2
+
+
+@pytest.mark.asyncio
+async def test_timeline_cluster_summary_has_links(tmpdir):
+    """Multi-row cluster summary renders 'N added' and 'N updated' as links."""
+    datasette, db = await _setup_timeline_db(tmpdir)
+    response = await datasette.client.get("/-/chronicle/timeline/timeline")
+    html = response.text
+    # Tags 1-3 cluster into "3 added" - should be a link with _chronicle_added_range
+    assert "_chronicle_added_range=" in html
+    assert "3 added" in html
+
+
+@pytest.mark.asyncio
+async def test_table_timeline_cluster_summary_has_links(tmpdir):
+    """Table timeline multi-row cluster summary renders linked counts."""
+    datasette, db = await _setup_timeline_db(tmpdir)
+    response = await datasette.client.get("/-/chronicle/timeline/timeline/tags")
+    html = response.text
+    assert "_chronicle_added_range=" in html
+    assert "3 added" in html

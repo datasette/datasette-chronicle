@@ -306,10 +306,26 @@ def permission_resources_sql(datasette, actor, action):
     )
 
 
+def _parse_version_range(value):
+    """Parse a 'MIN-MAX' version range string. Returns (min, max) ints or None."""
+    if value is None:
+        return None
+    parts = value.split("-", 1)
+    if len(parts) != 2:
+        return None
+    try:
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+
+
 @hookimpl
 def filters_from_request(request, datasette, database, table):
     since = request.args.get("_since")
-    if since is None:
+    added_range = request.args.get("_chronicle_added_range")
+    updated_range = request.args.get("_chronicle_updated_range")
+
+    if since is None and added_range is None and updated_range is None:
         return
 
     if table.startswith("_chronicle_"):
@@ -319,16 +335,48 @@ def filters_from_request(request, datasette, database, table):
         db = datasette.get_database(database)
         chronicle_table = "_chronicle_{}".format(table)
         if not await db.table_exists(chronicle_table):
-            # No chronicle table
             return None
-        # Get the primary keys
         pks = ", ".join('"{}"'.format(pk) for pk in await db.primary_keys(table))
-        extra_where = f'({pks}) in (select {pks} from "{chronicle_table}" where __version > :chronicle_since)'
-        return FilterArguments(
-            [extra_where],
-            {"chronicle_since": since},
-            human_descriptions=["modified since version {}".format(since)],
-        )
+        ct = chronicle_table.replace('"', '""')
+
+        extra_wheres = []
+        params = {}
+        descriptions = []
+
+        if since is not None:
+            extra_wheres.append(
+                f'({pks}) in (select {pks} from "{ct}" where __version > :chronicle_since)'
+            )
+            params["chronicle_since"] = since
+            descriptions.append("modified since version {}".format(since))
+
+        parsed_added = _parse_version_range(added_range)
+        if parsed_added is not None:
+            v_min, v_max = parsed_added
+            extra_wheres.append(
+                f'({pks}) in (select {pks} from "{ct}"'
+                ' where __version between :chronicle_added_min and :chronicle_added_max'
+                ' and __added_ms = __updated_ms)'
+            )
+            params["chronicle_added_min"] = v_min
+            params["chronicle_added_max"] = v_max
+            descriptions.append("added in versions {}-{}".format(v_min, v_max))
+
+        parsed_updated = _parse_version_range(updated_range)
+        if parsed_updated is not None:
+            v_min, v_max = parsed_updated
+            extra_wheres.append(
+                f'({pks}) in (select {pks} from "{ct}"'
+                ' where __version between :chronicle_updated_min and :chronicle_updated_max'
+                ' and __added_ms != __updated_ms and __deleted = 0)'
+            )
+            params["chronicle_updated_min"] = v_min
+            params["chronicle_updated_max"] = v_max
+            descriptions.append("updated in versions {}-{}".format(v_min, v_max))
+
+        if not extra_wheres:
+            return None
+        return FilterArguments(extra_wheres, params, human_descriptions=descriptions)
 
     return inner
 
@@ -420,19 +468,28 @@ def _cluster_rows(rows):
                 "deleted": 0,
                 "min_version": row["__version"],
                 "max_version": row["__version"],
+                "added_min_version": None,
+                "added_max_version": None,
+                "updated_min_version": None,
+                "updated_max_version": None,
             }
             clusters.append(current)
 
         current["oldest_ms"] = ts
-        current["min_version"] = min(current["min_version"], row["__version"])
-        current["max_version"] = max(current["max_version"], row["__version"])
+        v = row["__version"]
+        current["min_version"] = min(current["min_version"], v)
+        current["max_version"] = max(current["max_version"], v)
         current["rows"].append(dict(row))
         if is_deleted:
             current["deleted"] += 1
         elif is_added:
             current["added"] += 1
+            current["added_min_version"] = min(current["added_min_version"], v) if current["added_min_version"] is not None else v
+            current["added_max_version"] = max(current["added_max_version"], v) if current["added_max_version"] is not None else v
         else:
             current["updated"] += 1
+            current["updated_min_version"] = min(current["updated_min_version"], v) if current["updated_min_version"] is not None else v
+            current["updated_max_version"] = max(current["updated_max_version"], v) if current["updated_max_version"] is not None else v
 
     return clusters
 
@@ -606,6 +663,14 @@ async def chronicle_timeline(datasette, request):
                 "updated": cluster["updated"],
                 "deleted": cluster["deleted"],
                 "is_new": cluster["added"] > 0 and cluster["updated"] == 0 and cluster["deleted"] == 0,
+                "added_version_range": (
+                    "{}-{}".format(cluster["added_min_version"], cluster["added_max_version"])
+                    if cluster["added_min_version"] is not None else None
+                ),
+                "updated_version_range": (
+                    "{}-{}".format(cluster["updated_min_version"], cluster["updated_max_version"])
+                    if cluster["updated_min_version"] is not None else None
+                ),
                 "row": None,
                 "row_columns": None,
                 "row_values": None,
@@ -757,6 +822,14 @@ async def chronicle_table_timeline(datasette, request):
             "updated": cluster["updated"],
             "deleted": cluster["deleted"],
             "is_new": cluster["added"] > 0 and cluster["updated"] == 0 and cluster["deleted"] == 0,
+            "added_version_range": (
+                "{}-{}".format(cluster["added_min_version"], cluster["added_max_version"])
+                if cluster["added_min_version"] is not None else None
+            ),
+            "updated_version_range": (
+                "{}-{}".format(cluster["updated_min_version"], cluster["updated_max_version"])
+                if cluster["updated_min_version"] is not None else None
+            ),
             "row": None,
             "row_columns": None,
             "row_values": None,
