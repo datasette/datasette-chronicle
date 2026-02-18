@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Chronicle timeline - {{ database }}{% endblock %}
+
+{% block crumbs %}
+{{ crumbs.nav(request=request, database=database) }}
+{% endblock %}
+
+{% block content %}
+<h1>Chronicle timeline &ndash; {{ database }}</h1>
+
+{% if not chronicle_tables %}
+<p>No tables with chronicle enabled found in this database.</p>
+{% else %}
+
+<p>Tracking changes across: {% for table in chronicle_tables %}<a href="{{ urls.table(database, table) }}">{{ table }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+
+{% if has_more %}
+<p class="message-info">Some tables have more history than shown. Use the next page link below to see earlier changes.</p>
+{% endif %}
+
+{% if not days %}
+<p>No changes recorded yet.</p>
+{% else %}
+
+{% for day_label, events in days %}
+<h2>{{ day_label }}</h2>
+
+{% for event in events %}
+<div class="chronicle-event">
+
+{% if event.count == 1 %}
+{# Single row event - show full preview #}
+<h3>
+  <a href="{{ urls.table(database, event.table) }}">{{ event.table }}</a>
+  &ndash;
+  {% if event.deleted %}deleted{% elif event.is_new %}added{% else %}updated{% endif %}
+  <span class="event-time">{{ event.time_label }}</span>
+</h3>
+{% if event.row %}
+<table class="rows-and-columns">
+  <thead>
+    <tr>
+      {% for col in event.row_columns %}
+      <th>{{ col }}</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    <tr class="{% if event.deleted %}deleted{% elif event.is_new %}added{% else %}updated{% endif %}">
+      {% for val in event.row_values %}
+      <td>{{ val }}</td>
+      {% endfor %}
+    </tr>
+  </tbody>
+</table>
+{% endif %}
+
+{% else %}
+{# Multi-row cluster - show summary #}
+<h3>
+  <a href="{{ urls.table(database, event.table) }}">{{ event.table }}</a>
+  &ndash;
+  {% set parts = [] %}
+  {% if event.added %}{% set _ = parts.append(event.added|string + " added") %}{% endif %}
+  {% if event.updated %}{% set _ = parts.append(event.updated|string + " updated") %}{% endif %}
+  {% if event.deleted %}{% set _ = parts.append(event.deleted|string + " deleted") %}{% endif %}
+  {{ parts | join(", ") }}
+  <span class="event-time">{{ event.time_label }}</span>
+</h3>
+{% endif %}
+
+</div>
+{% endfor %}
+
+{% endfor %}
+
+{% if has_more %}
+<p><a href="{{ next_page_url }}">Load earlier changes &rarr;</a></p>
+{% endif %}
+
+{% endif %}
+{% endif %}
+
+<style>
+.chronicle-event {
+  margin-bottom: 1.5em;
+  padding-left: 1em;
+  border-left: 3px solid #ddd;
+}
+.chronicle-event h3 {
+  margin: 0 0 0.5em 0;
+  font-size: 1em;
+}
+.event-time {
+  font-weight: normal;
+  color: #666;
+  font-size: 0.9em;
+}
+.chronicle-event table {
+  font-size: 0.9em;
+}
+td, th {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>
+{% endblock %}

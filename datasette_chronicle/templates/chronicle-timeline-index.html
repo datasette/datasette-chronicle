@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Chronicle timeline{% endblock %}
+
+{% block content %}
+<h1>Chronicle timeline</h1>
+
+{% if not databases %}
+<p>No databases with chronicle-enabled tables found.</p>
+{% elif databases|length == 1 %}
+{# Single database: this page should have redirected, but handle it gracefully #}
+<p><a href="{{ urls.path('/-/chronicle/timeline/' + databases[0]) }}">View timeline for {{ databases[0] }}</a></p>
+{% else %}
+<p>Choose a database to view its chronicle timeline:</p>
+<ul>
+{% for db in databases %}
+  <li><a href="{{ urls.path('/-/chronicle/timeline/' + db) }}">{{ db }}</a></li>
+{% endfor %}
+</ul>
+{% endif %}
+{% endblock %}
