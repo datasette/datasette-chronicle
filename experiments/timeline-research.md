@@ -636,3 +636,22 @@ The timeline page renders at /-/chronicle/timeline/{database}. It shows:
 ```
 
 ![Chronicle timeline page showing day headings, bulk cluster events and individual row previews](9763eb2c-2026-02-18.png)
+
+## Table timeline + database action menu
+
+Added:
+- `/-/chronicle/timeline/{database}/{tilde_encoded_table}` - single-table timeline (tilde encoding handles tables with / or other special chars in the name)
+- Table actions dropdown now shows 'View chronicle timeline' with description 'Browse a timeline of row-level changes for this table' for any table with chronicle enabled
+- Database actions dropdown shows 'Chronicle timeline' with description 'Browse a timeline of row-level changes across all tracked tables'
+
+```bash {image}
+![Table actions dropdown showing View chronicle timeline with subheading](/tmp/table-actions-open3.png)
+```
+
+![Table actions dropdown showing View chronicle timeline with subheading](88c5db3b-2026-02-18.png)
+
+```bash {image}
+![Single-table timeline page showing articles with day headings and row previews](/tmp/table-timeline.png)
+```
+
+![Single-table timeline page showing articles with day headings and row previews](4b936224-2026-02-18.png)

@@ -1,7 +1,8 @@
-from datasette import hookimpl, Response
+from datasette import hookimpl, Response, NotFound
 from datasette.filters import FilterArguments
 from datasette.permissions import Action, PermissionSQL
 from datasette.resources import TableResource
+from datasette.utils import tilde_encode, tilde_decode
 import sqlite_chronicle
 import datetime
 import urllib.parse
@@ -40,13 +41,25 @@ def table_actions(datasette, actor, database, table):
             return None
         chronicle_table = "_chronicle_{}".format(table)
         if await db.table_exists(chronicle_table):
-            # Table exists, so it's enabled
+            # Table exists — always link to the timeline (no special permission needed
+            # beyond being able to view the table, which is implied by reaching here)
+            actions = [
+                {
+                    "href": datasette.urls.path(
+                        "/-/chronicle/timeline/{}/{}".format(
+                            database, tilde_encode(table)
+                        )
+                    ),
+                    "label": "View chronicle timeline",
+                    "description": "Browse a timeline of row-level changes for this table",
+                }
+            ]
             if await datasette.allowed(
                 action="disable-chronicle",
                 resource=TableResource(database=database, table=table),
                 actor=actor,
             ):
-                return [
+                actions.append(
                     {
                         "href": datasette.urls.path(
                             "/-/disable-chronicle/{}/{}".format(database, table)
@@ -54,7 +67,8 @@ def table_actions(datasette, actor, database, table):
                         "label": "Disable row version tracking for this table",
                         "description": "Remove the associated triggers and table",
                     }
-                ]
+                )
+            return actions
         else:
             # Table doesn't exist, so it's disabled
             if await datasette.allowed(
@@ -73,6 +87,35 @@ def table_actions(datasette, actor, database, table):
                         "description": "Track a version number and added/updated time for each row",
                     }
                 ]
+
+    return inner
+
+
+@hookimpl
+def database_actions(datasette, actor, database, request):
+    async def inner():
+        db = datasette.get_database(database)
+        table_names = await db.table_names()
+        # Find chronicle tables whose corresponding original table the actor can view
+        for t in table_names:
+            if not t.startswith("_chronicle_") or t == "_chroniclesnapshots":
+                continue
+            original = t[len("_chronicle_"):]
+            if await datasette.allowed(
+                action="view-table",
+                resource=TableResource(database=database, table=original),
+                actor=actor,
+            ):
+                return [
+                    {
+                        "href": datasette.urls.path(
+                            "/-/chronicle/timeline/{}".format(database)
+                        ),
+                        "label": "Chronicle timeline",
+                        "description": "Browse a timeline of row-level changes across all tracked tables",
+                    }
+                ]
+        return []
 
     return inner
 
@@ -120,6 +163,10 @@ def register_routes():
         (
             r"^/-/chronicle/timeline/(?P<database>[^/]+)$",
             chronicle_timeline,
+        ),
+        (
+            r"^/-/chronicle/timeline/(?P<database>[^/]+)/(?P<table>[^/]+)$",
+            chronicle_table_timeline,
         ),
     ]
 
@@ -625,6 +672,145 @@ async def chronicle_timeline(datasette, request):
             {
                 "database": database,
                 "chronicle_tables": chronicle_tables,
+                "days": days_out,
+                "has_more": has_more,
+                "next_page_url": next_page_url,
+            },
+            request=request,
+        )
+    )
+
+
+async def chronicle_table_timeline(datasette, request):
+    database = request.url_vars["database"]
+    table = tilde_decode(request.url_vars["table"])
+    db = datasette.get_database(database)
+
+    if database not in upgrade_has_run:
+        upgrade_has_run.add(database)
+        await upgrade_database(datasette, database)
+
+    chronicle_table = "_chronicle_{}".format(table)
+    if not await db.table_exists(chronicle_table):
+        raise NotFound("No chronicle table found for {}".format(table))
+
+    pks = await db.primary_keys(table)
+
+    # Parse cursor from ?cursor=VERSION
+    version_cursor = None
+    raw = request.args.get("cursor")
+    if raw is not None:
+        try:
+            version_cursor = int(raw)
+        except ValueError:
+            pass
+
+    # Build single-table query
+    import json as _json
+    escaped = table.replace('"', '""')
+    cursor_clause = ""
+    if version_cursor is not None:
+        cursor_clause = "AND __version < %d" % version_cursor
+
+    if pks:
+        pk_args = ", ".join(
+            "'%s', \"%s\"" % (pk.replace("'", "''"), pk.replace('"', '""'))
+            for pk in pks
+        )
+        pk_json_expr = "json_object(%s)" % pk_args
+    else:
+        pk_json_expr = "json('{}')"
+
+    sql = (
+        'SELECT __version, __added_ms, __updated_ms, __deleted, %(pk_json)s AS _pk_json'
+        ' FROM "_chronicle_%(t)s"'
+        ' WHERE 1=1 %(cursor)s'
+        ' ORDER BY __version DESC'
+        ' LIMIT %(limit)d'
+        % dict(t=escaped, cursor=cursor_clause, pk_json=pk_json_expr, limit=_PER_TABLE_LIMIT)
+    )
+    result = await db.execute(sql)
+    col_names = [d[0] for d in result.description]
+    raw_rows = [
+        dict(_table=table, **dict(zip(col_names, row)))
+        for row in result.rows
+    ]
+
+    has_more = len(raw_rows) == _PER_TABLE_LIMIT
+    next_cursor = None
+    if has_more:
+        next_cursor = min(r["__version"] for r in raw_rows)
+
+    # Cluster into events
+    clusters = _cluster_rows(raw_rows)
+
+    events = []
+    for cluster in clusters:
+        count = len(cluster["rows"])
+        time_label = _format_time(cluster["newest_ms"])
+        event = {
+            "table": table,
+            "count": count,
+            "time_label": time_label,
+            "newest_ms": cluster["newest_ms"],
+            "added": cluster["added"],
+            "updated": cluster["updated"],
+            "deleted": cluster["deleted"],
+            "is_new": cluster["added"] > 0 and cluster["updated"] == 0 and cluster["deleted"] == 0,
+            "row": None,
+            "row_columns": None,
+            "row_values": None,
+        }
+
+        if count == 1:
+            row = cluster["rows"][0]
+            event["deleted"] = bool(row["__deleted"])
+            event["is_new"] = row["__added_ms"] == row["__updated_ms"]
+            pk_json_str = row.get("_pk_json")
+            if pks and pk_json_str:
+                try:
+                    pk_map = _json.loads(pk_json_str)
+                    pk_values = [pk_map.get(pk) for pk in pks]
+                except (ValueError, TypeError):
+                    pk_values = None
+                if pk_values and all(v is not None for v in pk_values):
+                    columns, inflated = await _inflate_row(db, table, pks, pk_values)
+                    if inflated is not None:
+                        pk_set = set(pks)
+                        other_cols = [c for c in columns if c not in pk_set]
+                        display_cols = pks + other_cols[: max(0, _PREVIEW_COLS - len(pks))]
+                        col_indices = [columns.index(c) for c in display_cols]
+                        event["row"] = inflated
+                        event["row_columns"] = display_cols
+                        event["row_values"] = [_truncate(inflated[i]) for i in col_indices]
+
+        events.append(event)
+
+    # Group by day
+    seen_days = []
+    day_events = {}
+    for event in events:
+        dk = _day_key(event["newest_ms"])
+        if dk not in day_events:
+            seen_days.append(dk)
+            day_events[dk] = []
+        day_events[dk].append(event)
+
+    days_out = [
+        (_format_day(day_events[dk][0]["newest_ms"]), day_events[dk])
+        for dk in seen_days
+    ]
+
+    next_page_url = None
+    if has_more and next_cursor is not None:
+        next_page_url = request.path + "?cursor=%d" % next_cursor
+
+    return Response.html(
+        await datasette.render_template(
+            "chronicle-table-timeline.html",
+            {
+                "database": database,
+                "table": table,
                 "days": days_out,
                 "has_more": has_more,
                 "next_page_url": next_page_url,
