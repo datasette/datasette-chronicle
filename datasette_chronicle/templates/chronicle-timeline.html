@@ -34,7 +34,10 @@
 <h3>
   <a href="{{ urls.table(database, event.table) }}">{{ event.table }}</a>
   &ndash;
-  {% if event.deleted %}deleted{% elif event.is_new %}added{% else %}updated{% endif %}
+  {% if event.deleted %}deleted 1 row
+  {% elif event.is_new %}added {% if event.row_url %}<a href="{{ event.row_url }}">1 row</a>{% else %}1 row{% endif %}
+  {% else %}updated {% if event.row_url %}<a href="{{ event.row_url }}">1 row</a>{% else %}1 row{% endif %}
+  {% endif %}
   <span class="event-time">{{ event.time_label }}</span>
 </h3>
 {% if event.row %}

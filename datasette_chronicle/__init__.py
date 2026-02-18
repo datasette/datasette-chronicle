@@ -674,6 +674,7 @@ async def chronicle_timeline(datasette, request):
                 "row": None,
                 "row_columns": None,
                 "row_values": None,
+                "row_url": None,
             }
 
             if count == 1:
@@ -690,6 +691,9 @@ async def chronicle_timeline(datasette, request):
                     except (ValueError, TypeError):
                         pk_values = None
                     if pk_values and all(v is not None for v in pk_values):
+                        if not event["deleted"]:
+                            pk_path = ",".join(tilde_encode(str(v)) for v in pk_values)
+                            event["row_url"] = datasette.urls.table(database, table) + "/" + pk_path
                         columns, inflated = await _inflate_row(db, table, pks, pk_values)
                         if inflated is not None:
                             # Show up to _PREVIEW_COLS columns; always show PKs first
@@ -833,6 +837,7 @@ async def chronicle_table_timeline(datasette, request):
             "row": None,
             "row_columns": None,
             "row_values": None,
+            "row_url": None,
         }
 
         if count == 1:
@@ -847,6 +852,9 @@ async def chronicle_table_timeline(datasette, request):
                 except (ValueError, TypeError):
                     pk_values = None
                 if pk_values and all(v is not None for v in pk_values):
+                    if not event["deleted"]:
+                        pk_path = ",".join(tilde_encode(str(v)) for v in pk_values)
+                        event["row_url"] = datasette.urls.table(database, table) + "/" + pk_path
                     columns, inflated = await _inflate_row(db, table, pks, pk_values)
                     if inflated is not None:
                         pk_set = set(pks)

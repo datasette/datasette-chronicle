@@ -398,6 +398,21 @@ async def test_table_timeline_single_row_preview(tmpdir):
 
 
 @pytest.mark.asyncio
+async def test_single_row_event_has_row_link(tmpdir):
+    """Single-row events show 'added 1 row' / 'updated 1 row' with a link to the row page."""
+    datasette, db = await _setup_timeline_db(tmpdir)
+    # Articles 4 and 5 are isolated single-row events (added)
+    response = await datasette.client.get("/-/chronicle/timeline/timeline/articles")
+    html = response.text
+    # Should contain "1 row" as a link pointing to /timeline/articles/4 or /5
+    assert 'href="/timeline/articles/4"' in html or 'href="/timeline/articles/5"' in html
+    assert "added" in html
+    # Should NOT have bare "added" without "1 row" following it
+    assert "added 1 row" not in html  # it's split as "added <a>1 row</a>"
+    assert ">1 row<" in html
+
+
+@pytest.mark.asyncio
 async def test_table_timeline_tilde_encoded_table(tmpdir):
     """Table timeline correctly decodes tilde-encoded table names in the URL."""
     from datasette.utils import tilde_encode
